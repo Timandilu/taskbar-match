@@ -1,0 +1,7 @@
+build/
+dist/TaskbarMatch-1.1.2-beta/
+dist/*.zip
+*.obj
+*.lib
+*.exp
+*.pdb
