@@ -15,13 +15,13 @@ Taskbar Match samples the active window edge and adjusts each Windows taskbar to
 
 This beta reaches private Windows taskbar XAML controls through a small native helper. It may be incompatible with other taskbar stylers or with future Windows taskbar changes. Do not run it alongside TranslucentTB, ExplorerPatcher, or StartAllBack.
 
-## Run the prebuilt package
+## Run the prebuilt executable
 
-1. Extract `TaskbarMatch-1.1.2-beta.zip`.
-2. Double-click `TaskbarMatch.cmd`.
+1. Download `TaskbarMatch.exe` from the release page.
+2. Double-click it.
+
+The executable contains the native helper and extracts it into its per-user cache on first use. The ZIP is an optional bundle with the executable, source license, and checksums.
 3. Use the tray icon to pause or exit and restore the taskbar.
-
-The launcher copies the release layout into `%LOCALAPPDATA%\TaskbarMatch` and starts the prebuilt `TaskbarMatch.exe`. It does not compile code on the user's machine.
 
 The beta binaries are not yet Authenticode-signed, so Windows may show an unfamiliar-app warning on first launch.
 

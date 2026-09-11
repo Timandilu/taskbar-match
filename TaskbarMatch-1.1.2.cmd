@@ -1677,12 +1677,40 @@ namespace TaskbarMatch
         internal IntPtr ControllerHandle;
         internal bool Connected { get { return connected; } }
 
+        private static void ExtractEmbeddedHelper(string path)
+        {
+            using (Stream source = typeof(TapBackend).Assembly.GetManifestResourceStream("TaskbarMatch.Xaml.dll"))
+            {
+                if (source == null)
+                    throw new FileNotFoundException("The embedded Taskbar Match helper is missing from this executable.");
+                string directory = Path.GetDirectoryName(path);
+                Directory.CreateDirectory(directory);
+                string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    using (FileStream target = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        byte[] buffer = new byte[81920];
+                        int read;
+                        while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                            target.Write(buffer, 0, read);
+                    }
+                    if (!File.Exists(path)) { File.Move(temporary, path); }
+                }
+                finally
+                {
+                    if (File.Exists(temporary)) { File.Delete(temporary); }
+                }
+            }
+        }
+
         private void LoadHelper()
         {
             if (module != IntPtr.Zero) { return; }
             string path = Path.Combine(Program.Root, HelperFolder, "TaskbarMatch.Xaml.dll");
+            if (!File.Exists(path)) { ExtractEmbeddedHelper(path); }
             if (!File.Exists(path))
-                throw new FileNotFoundException("The contrast helper is missing. Run TaskbarMatch-1.1.2.cmd to recreate its cache.", path);
+                throw new FileNotFoundException("The embedded contrast helper could not be prepared.", path);
             using (SHA256 sha = SHA256.Create())
             using (FileStream file = File.OpenRead(path))
             {
