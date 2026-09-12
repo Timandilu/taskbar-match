@@ -1110,8 +1110,8 @@ namespace TaskbarMatch
 
     internal sealed class TapBackend : IDisposable
     {
-        internal const string HelperHash = "1ca10b294157a0bd814e33b3888f72dc13d4c1401bbce947cc2c619972c47f62";
-        internal const string HelperFolder = "xaml-1.1.2-b1-1ca10b294157";
+        internal const string HelperHash = "bec6f0294140289a8ea77240198fcd624e18834817951e6e52e6d9b85405c62e";
+        internal const string HelperFolder = "xaml-1.1.2-b1-bec6f0294140";
         private const int Pending = unchecked((int)0x8000000A);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate int EnsureDelegate(IntPtr taskbar);

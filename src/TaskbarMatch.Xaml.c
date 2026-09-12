@@ -75,8 +75,11 @@ API void ReleaseSRWLockExclusive(void **);
 API void AcquireSRWLockShared(void **);
 API void ReleaseSRWLockShared(void **);
 #ifdef _MSC_VER
-API LONG InterlockedCompareExchange(volatile LONG *,LONG,LONG);
-API LONG InterlockedExchange(volatile LONG *,LONG);
+#include <intrin.h>
+#pragma intrinsic(_InterlockedCompareExchange)
+#pragma intrinsic(_InterlockedExchange)
+static LONG InterlockedCompareExchange(volatile LONG *p,LONG value,LONG old){return (LONG)_InterlockedCompareExchange((volatile long *)p,(long)value,(long)old);}
+static LONG InterlockedExchange(volatile LONG *p,LONG value){return (LONG)_InterlockedExchange((volatile long *)p,(long)value);}
 #else
 static LONG InterlockedCompareExchange(volatile LONG *p,LONG value,LONG old){return __sync_val_compare_and_swap(p,old,value);}
 static LONG InterlockedExchange(volatile LONG *p,LONG value){return __sync_lock_test_and_set(p,value);}
