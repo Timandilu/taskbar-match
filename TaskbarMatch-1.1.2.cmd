@@ -570,30 +570,40 @@ namespace TaskbarMatch
         internal static readonly string Sid = WindowsIdentity.GetCurrent().User.Value;
         internal static readonly string StopName = "Local\\TaskbarMatch.Stop." + Sid;
         internal static readonly string MutexName = "Local\\TaskbarMatch.Run." + Sid;
+        internal static bool AutoStart;
 
         [STAThread]
         private static void Main(string[] args)
         {
-            // The manifest already requests PerMonitorV2. The fallback is useful
-            // if the executable is rebuilt without embedding that manifest.
-            try { Native.SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
-
+            AutoStart = Array.IndexOf(args, "--autostart") >= 0;
             bool ownsMutex = false;
             Mutex single = null;
             AppController controller = null;
             try
             {
+                Directory.CreateDirectory(Root);
+                // Include UI initialization in the startup error handler.
+                try { Native.SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch { }
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.ThrowException);
+                ValidatePlatform();
                 Core.SelfTest();
                 Contrast.SelfTest();
-                if (args.Length > 0 && args[0] == "--selftest") { return; }
+                if (Array.IndexOf(args, "--selftest") >= 0)
+                {
+                    using (TapBackend test = new TapBackend()) { test.LoadHelper(); }
+                    Log("Startup self-test passed (including native helper load).");
+                    return;
+                }
                 single = new Mutex(false, MutexName);
                 try { ownsMutex = single.WaitOne(0); }
                 catch (AbandonedMutexException) { ownsMutex = true; }
                 if (!ownsMutex)
                 {
+                    // Windows can invoke startup more than once. Never stop
+                    // a running controller merely because login launches again.
+                    if (AutoStart) { Log("Duplicate autostart ignored."); return; }
                     try
                     {
                         using (EventWaitHandle stop = EventWaitHandle.OpenExisting(StopName)) { stop.Set(); }
@@ -601,8 +611,6 @@ namespace TaskbarMatch
                     catch (WaitHandleCannotBeOpenedException) { }
                     return;
                 }
-                if (!Environment.Is64BitProcess)
-                    throw new InvalidOperationException("TaskbarMatch requires x64 Windows 11.");
                 int session = Process.GetCurrentProcess().SessionId;
                 foreach (Process p in Process.GetProcessesByName("TranslucentTB"))
                 {
@@ -616,7 +624,20 @@ namespace TaskbarMatch
                         catch (Win32Exception) { }
                     }
                 }
+                // Keep an existing startup installation current when a user
+                // downloads and starts an update. Do not enable it implicitly.
+                if (!AutoStart)
+                {
+                    using (RegistryKey run = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", true))
+                    {
+                        if (run != null && run.GetValue("TaskbarMatch") != null)
+                            run.SetValue("TaskbarMatch", "\"" + InstallExecutable() + "\" --autostart", RegistryValueKind.String);
+                    }
+                }
                 Directory.CreateDirectory(Root);
+                Log("Starting 1.1.2 beta4; autostart=" + AutoStart.ToString() +
+                    "; Windows=" + Environment.OSVersion.Version.ToString() +
+                    "; executable=" + Application.ExecutablePath);
                 Application.OleRequired();
                 controller = new AppController();
                 Application.Run(controller);
@@ -635,6 +656,28 @@ namespace TaskbarMatch
                 if (ownsMutex && single != null) { single.ReleaseMutex(); }
                 if (single != null) { single.Dispose(); }
             }
+        }
+
+        private static void ValidatePlatform()
+        {
+            string architecture = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432") ??
+                Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE");
+            if (!Environment.Is64BitProcess || !String.Equals(architecture, "AMD64", StringComparison.OrdinalIgnoreCase))
+                throw new PlatformNotSupportedException("Taskbar Match requires x64 Windows 11. ARM64 and 32-bit Windows are not supported by this release.");
+            using (RegistryKey key = Registry.LocalMachine.OpenSubKey("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"))
+            {
+                int build;
+                if (key == null || !Int32.TryParse(Convert.ToString(key.GetValue("CurrentBuildNumber")), out build) || build < 22621)
+                    throw new PlatformNotSupportedException("Taskbar Match requires the stock Windows 11 taskbar, build 22621 or later (22H2+). Windows 10 and Windows 11 21H2 are not supported.");
+            }
+        }
+
+        internal static string InstallExecutable()
+        {
+            string installed = Path.Combine(Root, "TaskbarMatch.exe");
+            if (!String.Equals(Path.GetFullPath(Application.ExecutablePath), Path.GetFullPath(installed), StringComparison.OrdinalIgnoreCase))
+                File.Copy(Application.ExecutablePath, installed, true);
+            return installed;
         }
 
         internal static void Log(string text)
@@ -928,7 +971,7 @@ namespace TaskbarMatch
                     if (connectStartedAt < 0) { connectStartedAt = now; }
                     if (!backend.TryConnect(primary.Handle, explorerPid))
                     {
-                        if (now - connectStartedAt >= 15000)
+                        if (now - connectStartedAt >= (Program.AutoStart ? 60000 : 15000))
                             throw new InvalidOperationException("The taskbar XAML connection did not become ready. Close other taskbar stylers. This beta requires the stock Windows 11 taskbar. If the old helper is still active, stop it before launching this version.");
                         nextConnect = now + 500;
                         return;
@@ -1279,7 +1322,13 @@ namespace TaskbarMatch
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run"))
                 {
                     if (StartupEnabled()) { key.DeleteValue("TaskbarMatch", false); }
-                    else { key.SetValue("TaskbarMatch", "\"" + Application.ExecutablePath + "\" --autostart", RegistryValueKind.String); }
+                    else
+                    {
+                        string installed = Program.InstallExecutable();
+                        key.SetValue("TaskbarMatch", "\"" + installed + "\" --autostart", RegistryValueKind.String);
+                        using (RegistryKey approved = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"))
+                            approved.SetValue("TaskbarMatch", new byte[] { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, RegistryValueKind.Binary);
+                    }
                 }
             }
             catch (Exception ex)
@@ -1697,11 +1746,29 @@ namespace TaskbarMatch
             }
         }
 
-        private void LoadHelper()
+        private static bool HelperValid(string path)
+        {
+            if (!File.Exists(path)) { return false; }
+            using (SHA256 sha = SHA256.Create())
+            using (FileStream file = File.OpenRead(path))
+                return BitConverter.ToString(sha.ComputeHash(file)).Replace("-", "").Equals(HelperHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal void LoadHelper()
         {
             if (module != IntPtr.Zero) { return; }
             string path = Path.Combine(Program.Root, HelperFolder, "TaskbarMatch.Xaml.dll");
-            if (!File.Exists(path)) { ExtractEmbeddedHelper(path); }
+            if (!HelperValid(path))
+            {
+                if (File.Exists(path))
+                {
+                    // Keep the damaged file for diagnosis, then re-extract the
+                    // verified embedded resource instead of failing forever.
+                    File.Move(path, path + ".invalid-" + Guid.NewGuid().ToString("N"));
+                    Program.Log("Repaired invalid native helper cache: " + path);
+                }
+                ExtractEmbeddedHelper(path);
+            }
             if (!File.Exists(path))
                 throw new FileNotFoundException("The embedded contrast helper could not be prepared.", path);
             using (SHA256 sha = SHA256.Create())
